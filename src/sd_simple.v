@@ -20,7 +20,17 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module sd_simple(
+module sd_simple
+(
+    input clk_i,
+    input rst_i,
+    output SDCLK_o,
+    inout CMD_io,
+    inout DAT0_io,
+    inout DAT1_io,
+    inout DAT2_io,
+    inout DAT3_io
+);
 
-    );
+
 endmodule
