@@ -81,6 +81,27 @@ always @(posedge clk_i) begin
     end
 end
 
+reg [47:0] cmd_q;
+reg [7:0] crc_q;
+reg [5:0] cmd_index_q;
+
+always @(posedge clk_i) begin
+    if (rst_i) begin
+        cmd_index_q <= 0;
+    end else begin
+        case (cmd_index_q)
+            0: begin
+                cmd_q <= {1'b0, 1'b1, cmd_index_q, 32'b0, 7'b0, 1'b1};
+
+            end
+
+            default: begin
+                cmd_index_q <= 0;
+            end
+        endcase
+    end
+end
+
 
 
 endmodule
