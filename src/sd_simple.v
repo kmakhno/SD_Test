@@ -24,6 +24,7 @@ module sd_simple
 (
     input clk_i,
     input rst_i,
+    input en_i,
     output SDCLK_o,
     inout CMD_io,
     inout DAT0_io,
@@ -32,76 +33,232 @@ module sd_simple
     inout DAT3_io
 );
 
-localparam reg [2:0] SD_INIT = 3'h0,
-                     SD_IDLE = 3'h1,
-                     SD_READ = 3'h2,
-                     SD_WRITE = 3'h3;
+wire sdclk_rising_edge_d;
+wire sdclk_falling_edge_d;
 
-parameter PRESCALER = 400;
+wire CMD_id;
+wire CMD_od;
+wire start_response_d;
 
-reg [$clog2(PRESCALER/2)-1:0] fod_cnt_q;
-reg fod_clk_q;
-
-reg [2:0] sd_state_q;
-
-always @(posedge clk_i) begin
-    if (rst_i) begin
-        fod_cnt_q <= 0;
-        fod_clk_q <= 1'b0;
-    end else begin
-        fod_cnt_q <= fod_cnt_q + 1'b1;
-        if (fod_cnt_q == (PRESCALER/2)-1) begin
-            fod_cnt_q <= 0;
-            fod_clk_q <= ~fod_clk_q;
-        end
-    end
-end
+reg [47:0] command_q;
+reg [7:0] state_q;
+reg [7:0] delay_q;
+reg [7:0] bit_cnt_q;
+reg [15:0] counter_q;
+reg sdclk_q;
+reg CMD_en_q;
+reg [1:0] shr_q;
 
 always @(posedge clk_i) begin
     if (rst_i) begin
-        sd_state_q <= INIT;
+        state_q <= 0;
+        counter_q <= 0;
+        delay_q <= 0;
+        bit_cnt_q <= 0;
+        sdclk_q <= 1'b0;
+        CMD_en_q <= 1'b0;
+        command_q <= 48'h800000000000;
     end else begin
-        case (sd_state_q)
-            INIT: begin
+        case (state_q)
+            0: begin //IDLE
+                if (en_i)
+                    state_q <= 1;
             end
 
-            IDLE: begin
+            1: begin //generate gt 74 clocks delay
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 79) begin
+                        delay_q <= 0;
+                        state_q <= 2;
+                        command_q <= {1'b0, 1'b1, 6'b0, 32'b0, 7'b1001010, 1'b1};
+                    end
+                end
             end
 
-            READ: begin
+            2: begin //generate CMD0
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 3;
+                    end
+                end
             end
 
-            WRITE: begin
+            3: begin //generate 8 clocks delay
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        state_q <= 4;
+                        command_q <= {1'b0, 1'b1, 6'b001000, 20'b0, 4'b0001, 8'b10101010, 7'b1000011, 1'b1};
+                    end
+                end
             end
 
-            default: begin
-                sd_state_q <= IDLE;
+            4: begin //generate CMD8
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 5;
+                        CMD_en_q <= 1'b1;
+                    end
+                end
+            end
+
+            5: begin //generate 64 clocks for getting response
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (response_complete_q || delay_q == 63) begin
+                        delay_q <= 0;
+                        state_q <= 6;
+                        CMD_en_q <= 1'b0;
+                    end
+                end
+            end
+
+            6: begin //generate 8 clocks delay
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        state_q <= 7;
+                        // command_q <= {1'b0, 1'b1, 6'b001000, 20'b0, 4'b0001, 8'b10101010, 7'b1000011, 1'b1};
+                    end
+                end
+            end
+
+            7: begin
             end
         endcase
     end
 end
 
-reg [47:0] cmd_q;
-reg [7:0] crc_q;
-reg [5:0] cmd_index_q;
+always @(posedge clk_i) begin
+    if (rst_i) begin
+        shr_q <= 2'b00;
+    end else if (CMD_en_q) begin
+        shr_q <= {shr_q[0], CMD_id};
+    end
+end
+
+reg response_state_q;
+reg [135:0] response_reg_q;
+reg [7:0] response_bit_cnt_q;
+reg response_complete_q;
 
 always @(posedge clk_i) begin
     if (rst_i) begin
-        cmd_index_q <= 0;
+        response_state_q <= 1'b0;
+        response_reg_q <= 0;
+        response_bit_cnt_q <= 0;
+        response_complete_q <= 1'b0;
     end else begin
-        case (cmd_index_q)
-            0: begin
-                cmd_q <= {1'b0, 1'b1, cmd_index_q, 32'b0, 7'b0, 1'b1};
-
+        case (response_state_q)
+            1'b0: begin //IDLE
+                if (start_response_d) begin
+                    response_state_q <= 1'b1;
+                    response_complete_q <= 1'b0;
+                end
             end
 
-            default: begin
-                cmd_index_q <= 0;
+            1'b1: begin //response handling
+                if (sdclk_rising_edge_d) begin
+                    response_bit_cnt_q <= response_bit_cnt_q + 1'b1;
+                    response_reg_q <= {response_reg_q[134:0], CMD_id};
+                    if (response_bit_cnt_q == 48) begin
+                        response_bit_cnt_q <= 0;
+                        response_state_q <= 1'b0;
+                        response_reg_q <= response_reg_q;
+                        response_complete_q <= 1'b1;
+                    end
+                end
             end
         endcase
     end
 end
 
+assign start_response_d = shr_q[1] && !shr_q[0];
+assign CMD_od = command_q[47];
 
+IOBUF IOBUF_CMD (
+  .O(CMD_id),     // Buffer output
+  .IO(CMD_io),   // Buffer inout port (connect directly to top-level port)
+  .I(CMD_od),     // Buffer input
+  .T(CMD_en_q)      // 3-state enable input, high=input, low=output
+);
+
+// IOBUF IOBUF_DAT0 (
+//   .O(O),     // Buffer output
+//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
+//   .I(I),     // Buffer input
+//   .T(T)      // 3-state enable input, high=input, low=output
+// );
+
+// IOBUF IOBUF_DAT1 (
+//   .O(O),     // Buffer output
+//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
+//   .I(I),     // Buffer input
+//   .T(T)      // 3-state enable input, high=input, low=output
+// );
+
+// IOBUF IOBUF_DAT2 (
+//   .O(O),     // Buffer output
+//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
+//   .I(I),     // Buffer input
+//   .T(T)      // 3-state enable input, high=input, low=output
+// );
+
+// IOBUF IOBUF_DAT3 (
+//   .O(O),     // Buffer output
+//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
+//   .I(I),     // Buffer input
+//   .T(T)      // 3-state enable input, high=input, low=output
+// );
+
+assign sdclk_rising_edge_d  = (counter_q == 124 && !sdclk_q);
+assign sdclk_falling_edge_d = (counter_q == 124 && sdclk_q);
+
+assign SDCLK_o = sdclk_q;
 
 endmodule
