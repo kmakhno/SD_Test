@@ -178,7 +178,7 @@ always @(posedge clk_i) begin
                     delay_q <= delay_q + 1'b1;
                     if (delay_q == 7) begin
                         delay_q <= 0;
-                        state_q <= 7;
+                        state_q <= 0;
                         // command_q <= {1'b0, 1'b1, 6'b001000, 20'b0, 4'b0001, 8'b10101010, 7'b1000011, 1'b1};
                     end
                 end
@@ -274,6 +274,19 @@ IOBUF IOBUF_DAT3 (
 
 assign sdclk_rising_edge_d  = (counter_q == 124 && !sdclk_q);
 assign sdclk_falling_edge_d = (counter_q == 124 && sdclk_q);
+ila_0 ila_0_inst (
+    .clk(clk_i),
+    .probe0(en_i),
+    .probe1(CMD_id),
+    .probe2(CMD_od),
+    .probe3(CMD_en_q),
+    .probe4(sdclk_rising_edge_d),
+    .probe5(sdclk_falling_edge_d),
+    .probe6(state_q),
+    .probe7(response_reg_q[47:0]),
+    .probe8(response_bit_cnt_q),
+    .probe9(response_complete_q)
+);
 
 assign SDCLK_o = sdclk_q;
 assign DAT0_od = 1'b1; //test
