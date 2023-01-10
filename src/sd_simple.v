@@ -38,6 +38,14 @@ wire sdclk_falling_edge_d;
 
 wire CMD_id;
 wire CMD_od;
+wire DAT0_id;
+wire DAT0_od;
+wire DAT1_id;
+wire DAT1_od;
+wire DAT2_id;
+wire DAT2_od;
+wire DAT3_id;
+wire DAT3_od;
 wire start_response_d;
 
 reg [47:0] command_q;
@@ -47,6 +55,10 @@ reg [7:0] bit_cnt_q;
 reg [15:0] counter_q;
 reg sdclk_q;
 reg CMD_en_q;
+reg DAT0_en_q;
+reg DAT1_en_q;
+reg DAT2_en_q;
+reg DAT3_en_q;
 reg [1:0] shr_q;
 
 always @(posedge clk_i) begin
@@ -57,6 +69,10 @@ always @(posedge clk_i) begin
         bit_cnt_q <= 0;
         sdclk_q <= 1'b0;
         CMD_en_q <= 1'b0;
+        DAT0_en_q <= 1'b0;
+        DAT1_en_q <= 1'b1;
+        DAT2_en_q <= 1'b1;
+        DAT3_en_q <= 1'b1;
         command_q <= 48'h800000000000;
     end else begin
         case (state_q)
@@ -228,37 +244,38 @@ IOBUF IOBUF_CMD (
   .T(CMD_en_q)      // 3-state enable input, high=input, low=output
 );
 
-// IOBUF IOBUF_DAT0 (
-//   .O(O),     // Buffer output
-//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
-//   .I(I),     // Buffer input
-//   .T(T)      // 3-state enable input, high=input, low=output
-// );
+IOBUF IOBUF_DAT0 (
+  .O(DAT0_id),     // Buffer output
+  .IO(DAT0_io),   // Buffer inout port (connect directly to top-level port)
+  .I(DAT0_od),     // Buffer input
+  .T(DAT0_en_q)      // 3-state enable input, high=input, low=output
+);
 
-// IOBUF IOBUF_DAT1 (
-//   .O(O),     // Buffer output
-//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
-//   .I(I),     // Buffer input
-//   .T(T)      // 3-state enable input, high=input, low=output
-// );
+IOBUF IOBUF_DAT1 (
+  .O(DAT1_id),     // Buffer output
+  .IO(DAT1_io),   // Buffer inout port (connect directly to top-level port)
+  .I(DAT1_od),     // Buffer input
+  .T(DAT1_en_q)      // 3-state enable input, high=input, low=output
+);
 
-// IOBUF IOBUF_DAT2 (
-//   .O(O),     // Buffer output
-//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
-//   .I(I),     // Buffer input
-//   .T(T)      // 3-state enable input, high=input, low=output
-// );
+IOBUF IOBUF_DAT2 (
+  .O(DAT2_id),     // Buffer output
+  .IO(DAT2_io),   // Buffer inout port (connect directly to top-level port)
+  .I(DAT2_od),     // Buffer input
+  .T(DAT2_en_q)      // 3-state enable input, high=input, low=output
+);
 
-// IOBUF IOBUF_DAT3 (
-//   .O(O),     // Buffer output
-//   .IO(IO),   // Buffer inout port (connect directly to top-level port)
-//   .I(I),     // Buffer input
-//   .T(T)      // 3-state enable input, high=input, low=output
-// );
+IOBUF IOBUF_DAT3 (
+  .O(DAT3_id),     // Buffer output
+  .IO(DAT3_io),   // Buffer inout port (connect directly to top-level port)
+  .I(DAT3_od),     // Buffer input
+  .T(DAT3_en_q)      // 3-state enable input, high=input, low=output
+);
 
 assign sdclk_rising_edge_d  = (counter_q == 124 && !sdclk_q);
 assign sdclk_falling_edge_d = (counter_q == 124 && sdclk_q);
 
 assign SDCLK_o = sdclk_q;
+assign DAT0_od = 1'b1; //test
 
 endmodule
