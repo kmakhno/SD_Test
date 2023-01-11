@@ -74,6 +74,7 @@ always @(posedge clk_i) begin
         DAT2_en_q <= 1'b1;
         DAT3_en_q <= 1'b1;
         command_q <= 48'h800000000000;
+        response_handeled_q <= 1'b0;
     end else begin
         case (state_q)
             0: begin //IDLE
@@ -163,11 +164,70 @@ always @(posedge clk_i) begin
                         delay_q <= 0;
                         state_q <= 6;
                         CMD_en_q <= 1'b0;
+                        if (response_complete_q)
+                            response_handeled_q <= 1'b1;
                     end
                 end
             end
 
             6: begin //generate 8 clocks delay
+                response_handeled_q <= 1'b0;
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        state_q <= 7;
+                        command_q <= {1'b0, 1'b1, 6'b110111, 32'b0, 7'b0110010, 1'b1};
+                    end
+                end
+            end
+
+            7: begin //CMD55
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 8;
+                        CMD_en_q <= 1'b1;
+                    end
+                end
+            end
+
+            8: begin //generate 64 clocks for getting response
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (response_complete_q || delay_q == 63) begin
+                        delay_q <= 0;
+                        state_q <= 9;
+                        CMD_en_q <= 1'b0;
+                        if (response_complete_q)
+                            response_handeled_q <= 1'b1;
+                    end
+                end
+            end
+
+
+            9: begin //generate 8 clocks delay
+                response_handeled_q <= 1'b0;
                 counter_q <= counter_q + 1'b1;
                 if (counter_q == 124) begin
                     counter_q <= 0;
@@ -179,12 +239,8 @@ always @(posedge clk_i) begin
                     if (delay_q == 7) begin
                         delay_q <= 0;
                         state_q <= 0;
-                        // command_q <= {1'b0, 1'b1, 6'b001000, 20'b0, 4'b0001, 8'b10101010, 7'b1000011, 1'b1};
                     end
                 end
-            end
-
-            7: begin
             end
         endcase
     end
@@ -202,6 +258,7 @@ reg response_state_q;
 reg [135:0] response_reg_q;
 reg [7:0] response_bit_cnt_q;
 reg response_complete_q;
+reg response_handeled_q;
 
 always @(posedge clk_i) begin
     if (rst_i) begin
@@ -214,6 +271,8 @@ always @(posedge clk_i) begin
             1'b0: begin //IDLE
                 if (start_response_d) begin
                     response_state_q <= 1'b1;
+                    response_complete_q <= 1'b0;
+                end else if (response_handeled_q) begin
                     response_complete_q <= 1'b0;
                 end
             end
