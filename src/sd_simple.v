@@ -47,10 +47,11 @@ wire DAT2_od;
 wire DAT3_id;
 wire DAT3_od;
 wire start_response_d;
+wire OCR_busy_d;
 
 reg [47:0] command_q;
 reg [7:0] state_q;
-reg [7:0] delay_q;
+reg [31:0] delay_q;
 reg [7:0] bit_cnt_q;
 reg [15:0] counter_q;
 reg sdclk_q;
@@ -60,6 +61,7 @@ reg DAT1_en_q;
 reg DAT2_en_q;
 reg DAT3_en_q;
 reg [1:0] shr_q;
+reg [31:0] attmept_counter_q;
 
 always @(posedge clk_i) begin
     if (rst_i) begin
@@ -75,6 +77,7 @@ always @(posedge clk_i) begin
         DAT3_en_q <= 1'b1;
         command_q <= 48'h800000000000;
         response_handeled_q <= 1'b0;
+        attmept_counter_q <= 0;
     end else begin
         case (state_q)
             0: begin //IDLE
@@ -238,7 +241,84 @@ always @(posedge clk_i) begin
                     delay_q <= delay_q + 1'b1;
                     if (delay_q == 7) begin
                         delay_q <= 0;
-                        state_q <= 0;
+                        state_q <= 10;
+                        command_q <= {1'b0, 1'b1, 6'b101001, 32'h40300000, 7'b1010101, 1'b1};
+                    end
+                end
+            end
+
+            10: begin //ACMD41
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 11;
+                        CMD_en_q <= 1'b1;
+                    end
+                end
+            end
+
+            11: begin //generate 64 clocks for getting response
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (response_complete_q || delay_q == 63) begin
+                        delay_q <= 0;
+                        state_q <= 12;
+                        CMD_en_q <= 1'b0;
+                        if (response_complete_q) begin
+                            response_handeled_q <= 1'b1;
+                        end
+                    end
+                end
+            end
+
+            12: begin //generate 8 clocks delay
+                response_handeled_q <= 1'b0;
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        if (!OCR_busy_d)
+                            state_q <= 13;
+                        else
+                            state_q <= 0;
+                        // command_q <= {1'b0, 1'b1, 6'b101001, 32'b0, 7'b1110010, 1'b1};
+                    end
+                end
+            end
+
+            13: begin //50ms delay
+                counter_q <= counter_q + 1'b1;
+                if (counter_q == 124) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 19999) begin
+                        delay_q <= 0;
+                        state_q <= 6; //to CMD55
+                        attmept_counter_q <= attmept_counter_q + 1'b1;
                     end
                 end
             end
@@ -344,10 +424,13 @@ ila_0 ila_0_inst (
     .probe6(state_q),
     .probe7(response_reg_q[47:0]),
     .probe8(response_bit_cnt_q),
-    .probe9(response_complete_q)
+    .probe9(response_complete_q),
+    .probe10(attmept_counter_q),
+    .probe11(OCR_busy_d)
 );
 
 assign SDCLK_o = sdclk_q;
 assign DAT0_od = 1'b1; //test
+assign OCR_busy_d = response_reg_q[39];
 
 endmodule
