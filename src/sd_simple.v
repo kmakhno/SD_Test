@@ -78,6 +78,7 @@ always @(posedge clk_i) begin
         command_q <= 48'h800000000000;
         response_handeled_q <= 1'b0;
         attmept_counter_q <= 0;
+        response_length_q <= 0;
     end else begin
         case (state_q)
             0: begin //IDLE
@@ -150,6 +151,7 @@ always @(posedge clk_i) begin
                         bit_cnt_q <= 0;
                         state_q <= 5;
                         CMD_en_q <= 1'b1;
+                        response_length_q <= 48;
                     end
                 end
             end
@@ -205,6 +207,7 @@ always @(posedge clk_i) begin
                         bit_cnt_q <= 0;
                         state_q <= 8;
                         CMD_en_q <= 1'b1;
+                        response_length_q <= 48;
                     end
                 end
             end
@@ -261,6 +264,7 @@ always @(posedge clk_i) begin
                         bit_cnt_q <= 0;
                         state_q <= 11;
                         CMD_en_q <= 1'b1;
+                        response_length_q <= 48;
                     end
                 end
             end
@@ -339,6 +343,7 @@ reg [135:0] response_reg_q;
 reg [7:0] response_bit_cnt_q;
 reg response_complete_q;
 reg response_handeled_q;
+reg [7:0] response_length_q;
 
 always @(posedge clk_i) begin
     if (rst_i) begin
@@ -361,7 +366,7 @@ always @(posedge clk_i) begin
                 if (sdclk_rising_edge_d) begin
                     response_bit_cnt_q <= response_bit_cnt_q + 1'b1;
                     response_reg_q <= {response_reg_q[134:0], CMD_id};
-                    if (response_bit_cnt_q == 48) begin
+                    if (response_bit_cnt_q == response_length_q) begin
                         response_bit_cnt_q <= 0;
                         response_state_q <= 1'b0;
                         response_reg_q <= response_reg_q;
@@ -422,7 +427,7 @@ ila_0 ila_0_inst (
     .probe4(sdclk_rising_edge_d),
     .probe5(sdclk_falling_edge_d),
     .probe6(state_q),
-    .probe7(response_reg_q[47:0]),
+    .probe7(response_reg_q),
     .probe8(response_bit_cnt_q),
     .probe9(response_complete_q),
     .probe10(attmept_counter_q),
