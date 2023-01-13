@@ -67,6 +67,7 @@ reg response_hndl_state_q;
 reg response_timeout_q;
 reg [15:0] RCA_q;
 reg [3:0] SD_state_q;
+reg [7:0] sdclk_prescaler_q;
 
 always @(posedge clk_i) begin
     if (rst_i) begin
@@ -88,6 +89,7 @@ always @(posedge clk_i) begin
         response_timeout_q <= 1'b0;
         RCA_q <= 0;
         SD_state_q <= 4'b0;
+        sdclk_prescaler_q <= 125;
     end else begin
         case (state_q)
             0: begin //IDLE
@@ -493,17 +495,329 @@ always @(posedge clk_i) begin
                     delay_q <= delay_q + 1'b1;
                     if (delay_q == 7) begin
                         delay_q <= 0;
-                        if (SD_state_q == 3) //if SD state in standby mode go next otherwise query a new RCA address
+                        if (SD_state_q == 3) begin//if SD state in standby mode go next otherwise query a new RCA address
                             state_q <= 21;
-                        else
+                            command_q <= {1'b0, 1'b1, 6'b000111, RCA_q, 16'b0, 7'b0110000, 1'b1};
+                            sdclk_prescaler_q <= 2; //change SD clock prescaler
+                        end else begin
                             state_q <= 17;
-                        // command_q <= {1'b0, 1'b1, 6'b000011, 32'b0, 7'b0010000, 1'b1};
+                        end
                     end
                 end
             end
 
-            21: begin
+            21: begin //CMD7
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 22;
+                        CMD_en_q <= 1'b1;
+                        DAT0_en_q <= 1'b1;
+                        response_length_q <= 48;
+                    end
+                end
             end
+
+            22: begin //generate 64 clocks for getting response
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                case (response_hndl_state_q)
+                    1'b0: begin
+                        if (start_response_d) begin
+                            response_hndl_state_q <= 1'b1;
+                            delay_q <= 0;
+                        end else if (sdclk_falling_edge_d) begin
+                            delay_q <= delay_q + 1'b1;
+                            if (delay_q == 63) begin
+                                response_timeout_q <= 1'b1;
+                                delay_q <= 0;
+                                state_q <= 0;
+                            end
+                        end
+                    end
+
+                    1'b1: begin
+                        if (response_complete_q) begin
+                            state_q <= 23;
+                            CMD_en_q <= 1'b0;
+                            DAT0_en_q <= 1'b0;
+                            SD_state_q <= response_reg_q[20:17];
+                            response_handeled_q <= 1'b1;
+                            response_hndl_state_q <= 1'b0;
+                        end
+                    end
+                endcase
+            end
+
+            23: begin
+                response_handeled_q <= 1'b0;
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        state_q <= 24;
+                        command_q <= {1'b0, 1'b1, 6'b001101, RCA_q, 16'b0, 7'b1110111, 1'b1};
+                        // if (SD_state_q == 3) begin//if SD state in standby mode go next otherwise query a new RCA address
+                        //     state_q <= 21;
+                        //     command_q <= {1'b0, 1'b1, 6'b000111, RCA_q, 16'b0, 7'b0110000, 1'b1};
+                        // end else begin
+                        //     state_q <= 17;
+                        // end
+                    end
+                end
+            end
+
+            24: begin //CMD13 getting SD Status
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 25;
+                        CMD_en_q <= 1'b1;
+                        response_length_q <= 48;
+                    end
+                end
+            end
+
+            25: begin //generate 64 clocks for getting response
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                case (response_hndl_state_q)
+                    1'b0: begin
+                        if (start_response_d) begin
+                            response_hndl_state_q <= 1'b1;
+                            delay_q <= 0;
+                        end else if (sdclk_falling_edge_d) begin
+                            delay_q <= delay_q + 1'b1;
+                            if (delay_q == 63) begin
+                                response_timeout_q <= 1'b1;
+                                delay_q <= 0;
+                                state_q <= 0;
+                            end
+                        end
+                    end
+
+                    1'b1: begin
+                        if (response_complete_q) begin
+                            state_q <= 26;
+                            CMD_en_q <= 1'b0;
+                            SD_state_q <= response_reg_q[20:17];
+                            response_handeled_q <= 1'b1;
+                            response_hndl_state_q <= 1'b0;
+                        end
+                    end
+                endcase
+            end
+
+            26: begin
+                response_handeled_q <= 1'b0;
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        // command_q <= {1'b0, 1'b1, 6'b001101, RCA_q, 16'b0, 7'b1110111, 1'b1};
+                        if (SD_state_q == 4) begin//if SD state is transfer mode go next otherwise go to the beginning
+                            state_q <= 27;
+                            command_q <= {1'b0, 1'b1, 6'b110111, RCA_q, 16'b0, 7'b1000011, 1'b1};
+                        end else begin
+                            state_q <= 0;
+                        end
+                    end
+                end
+            end
+
+            27: begin //CMD55
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 28;
+                        CMD_en_q <= 1'b1;
+                        response_length_q <= 48;
+                    end
+                end
+            end
+
+            28: begin //generate 64 clocks for getting response
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                case (response_hndl_state_q)
+                    1'b0: begin
+                        if (start_response_d) begin
+                            response_hndl_state_q <= 1'b1;
+                            delay_q <= 0;
+                        end else if (sdclk_falling_edge_d) begin
+                            delay_q <= delay_q + 1'b1;
+                            if (delay_q == 63) begin
+                                response_timeout_q <= 1'b1;
+                                delay_q <= 0;
+                                state_q <= 0;
+                            end
+                        end
+                    end
+
+                    1'b1: begin
+                        if (response_complete_q) begin
+                            state_q <= 29;
+                            CMD_en_q <= 1'b0;
+                            SD_state_q <= response_reg_q[20:17];
+                            response_handeled_q <= 1'b1;
+                            response_hndl_state_q <= 1'b0;
+                        end
+                    end
+                endcase
+            end
+
+            29: begin
+                response_handeled_q <= 1'b0;
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        state_q <= 30;
+                        command_q <= {1'b0, 1'b1, 6'b000110, 32'h2, 7'b1100101, 1'b1};
+                    end
+                end
+            end
+
+            30: begin //ACMD6 Change bus width to 4
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == 1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    command_q <= {command_q[46:0], 1'b1};
+                    bit_cnt_q <= bit_cnt_q + 1'b1;
+                    if (bit_cnt_q == 47) begin
+                        bit_cnt_q <= 0;
+                        state_q <= 31;
+                        CMD_en_q <= 1'b1;
+                        response_length_q <= 48;
+                    end
+                end
+            end
+
+            31: begin //generate 64 clocks for getting response
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                case (response_hndl_state_q)
+                    1'b0: begin
+                        if (start_response_d) begin
+                            response_hndl_state_q <= 1'b1;
+                            delay_q <= 0;
+                        end else if (sdclk_falling_edge_d) begin
+                            delay_q <= delay_q + 1'b1;
+                            if (delay_q == 63) begin
+                                response_timeout_q <= 1'b1;
+                                delay_q <= 0;
+                                state_q <= 0;
+                            end
+                        end
+                    end
+
+                    1'b1: begin
+                        if (response_complete_q) begin
+                            state_q <= 32;
+                            CMD_en_q <= 1'b0;
+                            SD_state_q <= response_reg_q[20:17];
+                            response_handeled_q <= 1'b1;
+                            response_hndl_state_q <= 1'b0;
+                        end
+                    end
+                endcase
+            end
+
+            32: begin
+                response_handeled_q <= 1'b0;
+                counter_q <= counter_q + 1'b1;
+                // if (counter_q == 124) begin
+                if (counter_q == sdclk_prescaler_q-1) begin
+                    counter_q <= 0;
+                    sdclk_q <= ~sdclk_q;
+                end
+
+                if (sdclk_falling_edge_d) begin
+                    delay_q <= delay_q + 1'b1;
+                    if (delay_q == 7) begin
+                        delay_q <= 0;
+                        state_q <= 33;
+                        // command_q <= {1'b0, 1'b1, 6'b000110, 32'h2, 7'b1100101, 1'b1};
+                    end
+                end
+            end
+
+            33: begin
+            end
+
         endcase
     end
 end
@@ -534,6 +848,7 @@ always @(posedge clk_i) begin
             1'b0: begin //IDLE
                 if (start_response_d) begin
                     response_state_q <= 1'b1;
+                    response_reg_q <= 0;
                     response_complete_q <= 1'b0;
                 end else if (response_handeled_q) begin
                     response_complete_q <= 1'b0;
@@ -594,8 +909,14 @@ IOBUF IOBUF_DAT3 (
   .T(DAT3_en_q)      // 3-state enable input, high=input, low=output
 );
 
-assign sdclk_rising_edge_d  = (counter_q == 124 && !sdclk_q);
-assign sdclk_falling_edge_d = (counter_q == 124 && sdclk_q);
+// assign sdclk_rising_edge_d  = (counter_q == (sdclk_prescaler_q-1) && !sdclk_q);
+reg [1:0] sdclk_shr_q = 2'b00;
+always @(posedge clk_i) begin
+    sdclk_shr_q <= {sdclk_shr_q[0], SDCLK_o};
+end
+assign sdclk_rising_edge_d = !sdclk_shr_q[1] && sdclk_shr_q[0]; 
+
+assign sdclk_falling_edge_d = (counter_q == (sdclk_prescaler_q-1) && sdclk_q);
 ila_0 ila_0_inst (
     .clk(clk_i),
     .probe0(en_i),
@@ -612,7 +933,9 @@ ila_0 ila_0_inst (
     .probe11(OCR_busy_d),
     .probe12(response_timeout_q),
     .probe13(RCA_q),
-    .probe14(SD_state_q)
+    .probe14(SD_state_q),
+    .probe15(SDCLK_o),
+    .probe16(start_response_d)
 );
 
 assign SDCLK_o = sdclk_q;
